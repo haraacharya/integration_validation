@@ -24,11 +24,15 @@ with open(result_csv_file_name, 'w') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         if not os.path.isfile("result.csv"):
     	    writer.writeheader()
+
 #example use of decorators
 def device_check(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
         lspci_check_before_test = run_command_with_warn_only_true("lspci | wc -l")
+	#sample command output if you want to convert to integer for further operation
+        lspci_check_before_test_after_format = command_output_formatter(lspci_check_before_test)
+	print "lspci_check_before_test_after_format in int is:", int(lspci_check_before_test_after_format)
 	print type(lspci_check_before_test), lspci_check_before_test
 	print "lspci_check_before_test is: ", lspci_check_before_test
         r = f(*args, **kwargs)
@@ -40,39 +44,48 @@ def device_check(f):
     return wrapped
 
 @device_check
-def mprime_automation():
-    test_name = "turbo_mode_test"
-    return_message = ""
-    result = "FAIL"
-    put(tools_folder_location + "/mprime_v29.3", "/usr/local/bin/mprime")
-    enabling_executable_option = run_command_with_warn_only_true("chmod 755 /usr/local/bin/mprime")		
-    print "Now will run mprime stress"
-    print "while mprime is running, will start turbostat to capture cstate residency and cpu frequency"
-   
-    mprime_async_cmd_output = run_command_with_warn_only_true("mprime -t & timeout 10s turbostat -i 1 | tee /tmp/turbostat_output_with_mprime.txt")
-    
-    print "Will kill mprime and then capture turbostat log"
-    mprime_pid_output = run_command_with_warn_only_true("sudo pkill mprime")
-    turbostat_cmd_output = run_command_with_warn_only_true("timeout 10s turbostat -i 1 | tee /tmp/turbostat_output_without_mprime.txt")
-    
-    return_message = "mprime test over"
-    print return_message
-    if mprime_async_cmd_output.failed:
-        result = "FAIL"
-	print "FAIL"
-    else:
-	result = "PASS"	
-	print "PASS"
-    
-    print return_message
-    return (test_name, result, return_message)
+def verify_memory_type():
+	test_name = "verify_memory_type"
+	return_message = ""
+	result = "FAIL"
+	with settings(warn_only=True):
+		run_command_with_warn_only_true("sync")
+	result = run_command_with_warn_only_true("cat /sys/firmware/log | grep -i lpddr")
+        new_result = return_message_formatter(result)
+	
+        print "stdout is:********", new_result, "****************************"
+	if result.find("LPDDR"):
+		print "The LPDDR is present"
+		return_message = new_result
+		result = "PASS"
+	else:
+		print "The LPDDR is not present"
+		return_message = "LPDDR is not present"
+		result = "FAIL"
+	return (test_name, result, return_message)
 
  
 def batch_run():
-    run_test(mprime_automation)
+    run_test(verify_memory_type)
 
 	
 #basic functions which will help write test scripts.
+
+#formating the return message in fabric as the fabric return values might contain ansi escape sequences
+def return_message_formatter(message):
+    ansi_escape_regex = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+    new_message = ansi_escape_regex.sub('', message)
+    newline_escape = re.compile(r'\r\n')
+    new_message = newline_escape.sub(', ', new_message)
+    return new_message	
+
+def command_output_formatter(message):
+    ansi_escape_regex = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+    new_message = ansi_escape_regex.sub('', message)
+    new_message = new_message.strip()
+    newline_escape = re.compile(r'\r\n')
+    new_message = newline_escape.sub('', new_message)
+    return new_message
 
 def run_command_with_warn_only_true(cmd):
     with settings(warn_only=True):
